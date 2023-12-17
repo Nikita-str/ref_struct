@@ -66,16 +66,19 @@ struct Args {
     ignore: HashMap<String, syn::Ident>,
     derive: Vec<TokenStream2>,
     is_pub: bool,
+    use_cow: bool,
 }
 impl syn::parse::Parse for Args {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        const USE_COW: &str = "use_cow";
         const PUB_CMD: &str = "public";
         const DERIVE_CMD: &str = "derive";
         const IGNORE_CMD: &str = "ignore";
         const CLONE_CMD: &str = "clone";
         const NAME_CMD: &str = "name";
-        const ALL_CMD: &[&str] = &[NAME_CMD, CLONE_CMD, IGNORE_CMD, PUB_CMD, DERIVE_CMD];
+        const ALL_CMD: &[&str] = &[NAME_CMD, CLONE_CMD, IGNORE_CMD,  DERIVE_CMD, PUB_CMD, USE_COW];
 
+        let mut use_cow = false;
         let mut is_pub = false;
         let mut name = None;
         let mut ignore = None;
@@ -119,6 +122,11 @@ impl syn::parse::Parse for Args {
                 is_pub = true;
                 cmd_done!()
             }
+            if cmd == USE_COW {
+                input.parse::<syn::Ident>()?;
+                use_cow = true;
+                cmd_done!()
+            }
 
             let idented_map: IdentedMap = input.parse()?;
             let cmd = idented_map.name.to_string();
@@ -157,6 +165,7 @@ impl syn::parse::Parse for Args {
             ignore,
             derive,
             is_pub,
+            use_cow,
         })
     }
 }
@@ -204,6 +213,7 @@ impl StructInfo {
 /// * `ignore(ignore_field_1, .., ignore_field_k)`
 /// * `derive(derive_path_1, .., derive_path_k)`
 /// * `public`
+/// * `use_cow`
 #[proc_macro_attribute]
 pub fn ref_struct(args: TokenStream, item: TokenStream) -> TokenStream {
     let args: Args = syn::parse(args).unwrap();
@@ -234,19 +244,31 @@ pub fn ref_struct(args: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
 
+    let ref_fields_define = if args.use_cow {
+        quote!{ #(#ref_fields: std::borrow::Cow<'x, #ref_tys>,)* }
+    } else {
+        quote!{ #(#ref_fields: &'x #ref_tys,)* }
+    };
+
+    let ref_fields_init = if args.use_cow {
+        quote!{ #(#ref_fields: std::borrow::Cow::Borrowed(&x.#ref_fields),)* }
+    } else {
+        quote!{ #(#ref_fields: &x.#ref_fields,)* }
+    };
+
     let cgen = quote!{
         #input
 
         #[derive( #(#derives,)* )]
         #maybe_pub struct #out_name<'x> {
-            #(#ref_fields: &'x #ref_tys,)*
+            #ref_fields_define
             #(#clone_fields: #clone_tys,)*
         }
 
         impl<'x> #out_name<'x> {
             pub fn new(x: &'x #in_name) -> Self {
                 Self {
-                    #(#ref_fields: &x.#ref_fields,)*
+                    #ref_fields_init
                     #(#clone_fields: x.#ref_fields.clone(),)*
                 }
             }
