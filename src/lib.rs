@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use proc_macro::TokenStream;
 use quote::{quote, format_ident};
@@ -38,6 +38,7 @@ impl Parse for IdentedMap {
 
 #[derive(Debug)]
 struct IdentedList<T> {
+    #[allow(unused)]
     name: syn::Ident,
     list: Vec<T>,
 }
@@ -166,10 +167,10 @@ struct StructInfo {
     field_types: Vec<TokenStream2>,
 }
 impl StructInfo {
-    fn from_derive_input(input: DeriveInput) -> Self {
-        let name = input.ident;
+    fn from_derive_input(input: &DeriveInput) -> Self {
+        let name = input.ident.clone();
 
-        let mut struct_fields = if let syn::Data::Struct(ds) = input.data {
+        let struct_fields = if let syn::Data::Struct(ds) = input.data.clone() {
             ds.fields.into_iter().map(|field|{
                 if let Some(name) = field.ident {
                     (name, field.ty)
@@ -208,7 +209,7 @@ pub fn ref_struct(args: TokenStream, item: TokenStream) -> TokenStream {
     let args: Args = syn::parse(args).unwrap();
 
     let input: DeriveInput = syn::parse(item).unwrap();
-    let input_info = StructInfo::from_derive_input(input);
+    let input_info = StructInfo::from_derive_input(&input);
     
     let in_name = input_info.name;
     let out_name = args.name.unwrap_or(format_ident!("Ref{}", in_name));    
@@ -216,20 +217,43 @@ pub fn ref_struct(args: TokenStream, item: TokenStream) -> TokenStream {
     let maybe_pub = if args.is_pub { quote! { pub } } else { quote::quote!{ } };
     let derives = args.derive;
 
-    let cgen = quote!{
-        #[derive( #(#derives)* )]
-        #maybe_pub struct #out_name<'x> {
+    let mut clone_fields = Vec::new();
+    let mut clone_tys = Vec::new();
+    let mut ref_fields = Vec::new();
+    let mut ref_tys = Vec::new();
 
+    for (i, ident) in input_info.field_names.iter().enumerate() {
+        let s = ident.to_string();
+        if args.ignore.contains_key(&s) { continue }
+        if args.clone.contains_key(&s) {
+            clone_tys.push(input_info.field_types[i].clone());
+            clone_fields.push(ident.clone());
+        } else {
+            ref_tys.push(input_info.field_types[i].clone());
+            ref_fields.push(ident.clone());
+        }
+    }
+
+    let cgen = quote!{
+        #input
+
+        #[derive( #(#derives,)* )]
+        #maybe_pub struct #out_name<'x> {
+            #(#ref_fields: &'x #ref_tys,)*
+            #(#clone_fields: #clone_tys,)*
         }
 
         impl<'x> #out_name<'x> {
-            pub fn new(x: &#in_name) -> Self {
-
+            pub fn new(x: &'x #in_name) -> Self {
+                Self {
+                    #(#ref_fields: &x.#ref_fields,)*
+                    #(#clone_fields: x.#ref_fields.clone(),)*
+                }
             }
         }
     };
 
     // todo!("args = {args:#?}")
-    todo!("\n```\n{}\n```\n", cgen.to_string());
+    // todo!("\n```\n{}\n```\n", cgen.to_string());
     TokenStream::from(cgen)
 }
