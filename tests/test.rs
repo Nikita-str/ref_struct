@@ -1,6 +1,6 @@
 
 
-#[ref_struct::ref_struct(ignore(ignore_a, ignore_b), clone(clone_a))]
+#[ref_struct::ref_struct(ignore(ignore_a, ignore_b), name(TestOutputName), clone(clone_a))]
 struct SimpleStruct {
     ignore_a: u32,
     ref_a: Vec<u8>,
