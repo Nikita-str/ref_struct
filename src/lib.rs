@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use proc_macro::TokenStream;
-use quote::quote;
+use quote::{quote, format_ident};
 use syn::DeriveInput;
 use syn::punctuated::Punctuated as Puncted;
 use syn::parse::{Parse, ParseStream};
@@ -37,26 +37,37 @@ impl Parse for IdentedMap {
 }
 
 #[derive(Debug)]
+struct IdentedList<T> {
+    name: syn::Ident,
+    list: Vec<T>,
+}
+
+impl<T: Parse> Parse for IdentedList<T> {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let name = input.parse::<syn::Ident>()?;
+
+        let content;
+        let _ = syn::parenthesized!(content in input);
+        let list = Puncted::<T, syn::Token![,]>::parse_terminated(&content)?;
+        let list = list.into_iter().collect();
+
+        Ok(Self {
+            name,
+            list,
+        })
+    }
+}
+
+#[derive(Debug)]
 struct Args {
     name: Option<syn::Ident>,
     clone: HashMap<String, syn::Ident>,
     ignore: HashMap<String, syn::Ident>,
+    derive: Vec<TokenStream2>,
 }
 impl syn::parse::Parse for Args {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        macro_rules! twiced_err {
-            ($cmd: expr) => {{
-                let span = input.span();
-                let message = format!("twiced `{}(..)` cmd", $cmd);
-                return Err(syn::Error::new(span, message))      
-            }};
-            (? $x: ident => $cmd: expr) => {{
-                if $x.is_some() {
-                    twiced_err!($cmd)
-                }
-            }};
-        }
-
+        const DERIVE_CMD: &str = "derive";
         const IGNORE_CMD: &str = "ignore";
         const CLONE_CMD: &str = "clone";
         const NAME_CMD: &str = "name";
@@ -65,8 +76,41 @@ impl syn::parse::Parse for Args {
         let mut name = None;
         let mut ignore = None;
         let mut clone = None;
+        let mut derive = Vec::new();
 
         loop {
+            // [+]   LOOP RELATED MACRO DEFINES
+            macro_rules! cmd_done {
+                () => {{
+                    if input.is_empty() { break }
+                    input.parse::<syn::Token![,]>()?;
+                    continue
+                }};
+            }
+            macro_rules! twiced_err {
+                ($cmd: expr) => {{
+                    let span = input.span();
+                    let message = format!("twiced `{}(..)` cmd", $cmd);
+                    return Err(syn::Error::new(span, message))      
+                }};
+                (? $x: ident => $cmd: expr) => {{
+                    if $x.is_some() {
+                        twiced_err!($cmd)
+                    }
+                }};
+            }
+            // [-]   LOOP RELATED MACRO DEFINES
+
+            let input_checker = input.fork();
+            // twice parse `syn::Ident` seems k ¯\_(ツ)_/¯
+            let cmd = input_checker.parse::<syn::Ident>()?.to_string();
+            if cmd == DERIVE_CMD {
+                let path_list: IdentedList<syn::Path> = input.parse()?;
+                let mut add_derive = path_list.list.into_iter().map(|path|quote!{ #path }).collect::<Vec<_>>();
+                derive.append(&mut add_derive);
+                cmd_done!()
+            }
+
             let idented_map: IdentedMap = input.parse()?;
             let cmd = idented_map.name.to_string();
             match cmd.as_str() {
@@ -92,8 +136,7 @@ impl syn::parse::Parse for Args {
                 }
             }
 
-            if input.is_empty() { break }
-            input.parse::<syn::Token![,]>()?;
+            cmd_done!()
         }
 
         let ignore = ignore.unwrap_or_else(||HashMap::new());
@@ -103,6 +146,7 @@ impl syn::parse::Parse for Args {
             name,
             clone,
             ignore,
+            derive,
         })
     }
 }
@@ -155,7 +199,25 @@ pub fn ref_struct(args: TokenStream, item: TokenStream) -> TokenStream {
     let input: DeriveInput = syn::parse(item).unwrap();
     let input_info = StructInfo::from_derive_input(input);
     
+    let in_name = input_info.name;
+    let out_name = args.name.unwrap_or(format_ident!("Ref{}", in_name));    
 
-    todo!("args = {args:#?}")
-    // todo!("args = {args:?}\n\n\nstruct = {struct_field_types:?}")
+    let derives = args.derive;
+
+    let cgen = quote!{
+        #[derive( #(#derives)* )]
+        struct #out_name<'x> {
+
+        }
+
+        impl<'x> #out_name<'x> {
+            pub fn new(x: &#in_name) -> Self {
+
+            }
+        }
+    };
+
+    // todo!("args = {args:#?}")
+    // todo!("\n```\n{}\n```\n", cgen.to_string());
+    TokenStream::from(cgen)
 }
