@@ -64,15 +64,18 @@ struct Args {
     clone: HashMap<String, syn::Ident>,
     ignore: HashMap<String, syn::Ident>,
     derive: Vec<TokenStream2>,
+    is_pub: bool,
 }
 impl syn::parse::Parse for Args {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        const PUB_CMD: &str = "public";
         const DERIVE_CMD: &str = "derive";
         const IGNORE_CMD: &str = "ignore";
         const CLONE_CMD: &str = "clone";
         const NAME_CMD: &str = "name";
-        const ALL_CMD: &[&str] = &[NAME_CMD, CLONE_CMD, IGNORE_CMD];
+        const ALL_CMD: &[&str] = &[NAME_CMD, CLONE_CMD, IGNORE_CMD, PUB_CMD, DERIVE_CMD];
 
+        let mut is_pub = false;
         let mut name = None;
         let mut ignore = None;
         let mut clone = None;
@@ -108,6 +111,11 @@ impl syn::parse::Parse for Args {
                 let path_list: IdentedList<syn::Path> = input.parse()?;
                 let mut add_derive = path_list.list.into_iter().map(|path|quote!{ #path }).collect::<Vec<_>>();
                 derive.append(&mut add_derive);
+                cmd_done!()
+            }
+            if cmd == PUB_CMD {
+                input.parse::<syn::Ident>()?;
+                is_pub = true;
                 cmd_done!()
             }
 
@@ -147,6 +155,7 @@ impl syn::parse::Parse for Args {
             clone,
             ignore,
             derive,
+            is_pub,
         })
     }
 }
@@ -191,7 +200,9 @@ impl StructInfo {
 /// where `cmd[i]` can be one of next:
 /// * `name(output_struct_name)`
 /// * `clone(clone_field_1, .., clone_field_k)`
-/// * `ignore(ignore_field_1, .., ignore_field_m)`
+/// * `ignore(ignore_field_1, .., ignore_field_k)`
+/// * `derive(derive_path_1, .., derive_path_k)`
+/// * `public`
 #[proc_macro_attribute]
 pub fn ref_struct(args: TokenStream, item: TokenStream) -> TokenStream {
     let args: Args = syn::parse(args).unwrap();
@@ -202,11 +213,12 @@ pub fn ref_struct(args: TokenStream, item: TokenStream) -> TokenStream {
     let in_name = input_info.name;
     let out_name = args.name.unwrap_or(format_ident!("Ref{}", in_name));    
 
+    let maybe_pub = if args.is_pub { quote! { pub } } else { quote::quote!{ } };
     let derives = args.derive;
 
     let cgen = quote!{
         #[derive( #(#derives)* )]
-        struct #out_name<'x> {
+        #maybe_pub struct #out_name<'x> {
 
         }
 
@@ -218,6 +230,6 @@ pub fn ref_struct(args: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     // todo!("args = {args:#?}")
-    // todo!("\n```\n{}\n```\n", cgen.to_string());
+    todo!("\n```\n{}\n```\n", cgen.to_string());
     TokenStream::from(cgen)
 }
