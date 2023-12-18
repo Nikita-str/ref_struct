@@ -3,61 +3,11 @@ use std::collections::HashMap;
 use proc_macro::TokenStream;
 use quote::{quote, format_ident};
 use syn::DeriveInput;
-use syn::punctuated::Punctuated as Puncted;
-use syn::parse::{Parse, ParseStream};
 
 use proc_macro2::TokenStream as TokenStream2;
 
-
-#[derive(Debug)]
-struct IdentedMap {
-    name: syn::Ident,
-    map: HashMap<String, syn::Ident>,
-}
-
-impl Parse for IdentedMap {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let name = input.parse::<syn::Ident>()?;
-
-        let content;
-        let _ = syn::parenthesized!(content in input);
-        let list = Puncted::<syn::Ident, syn::Token![,]>::parse_terminated(&content)?;
-
-        let mut map = HashMap::new();
-        for ident in list {
-            let s = ident.to_string();
-            map.insert(s, ident);
-        }
-
-        Ok(Self {
-            name,
-            map,
-        })
-    }
-}
-
-#[derive(Debug)]
-struct IdentedList<T> {
-    #[allow(unused)]
-    name: syn::Ident,
-    list: Vec<T>,
-}
-
-impl<T: Parse> Parse for IdentedList<T> {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let name = input.parse::<syn::Ident>()?;
-
-        let content;
-        let _ = syn::parenthesized!(content in input);
-        let list = Puncted::<T, syn::Token![,]>::parse_terminated(&content)?;
-        let list = list.into_iter().collect();
-
-        Ok(Self {
-            name,
-            list,
-        })
-    }
-}
+mod general;
+use general::{UnnamedList, UnnamedIndents};
 
 #[derive(Debug)]
 struct Args {
@@ -86,6 +36,7 @@ impl syn::parse::Parse for Args {
         let mut derive = Vec::new();
 
         loop {
+            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             // [+]   LOOP RELATED MACRO DEFINES
             macro_rules! cmd_done {
                 () => {{
@@ -107,44 +58,38 @@ impl syn::parse::Parse for Args {
                 }};
             }
             // [-]   LOOP RELATED MACRO DEFINES
+            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-            let input_checker = input.fork();
-            // twice parse `syn::Ident` seems k ¯\_(ツ)_/¯
-            let cmd = input_checker.parse::<syn::Ident>()?.to_string();
-            if cmd == DERIVE_CMD {
-                let path_list: IdentedList<syn::Path> = input.parse()?;
-                let mut add_derive = path_list.list.into_iter().map(|path|quote!{ #path }).collect::<Vec<_>>();
-                derive.append(&mut add_derive);
-                cmd_done!()
-            }
-            if cmd == PUB_CMD {
-                input.parse::<syn::Ident>()?;
-                is_pub = true;
-                cmd_done!()
-            }
-            if cmd == USE_COW {
-                input.parse::<syn::Ident>()?;
-                use_cow = true;
-                cmd_done!()
-            }
-
-            let idented_map: IdentedMap = input.parse()?;
-            let cmd = idented_map.name.to_string();
+            let cmd = input.parse::<syn::Ident>()?.to_string();
             match cmd.as_str() {
-                IGNORE_CMD => {
-                    twiced_err!(? ignore => IGNORE_CMD);
-                    ignore = Some(idented_map.map);
+                DERIVE_CMD => {
+                    let path_list: UnnamedList<syn::Path> = input.parse()?;
+                    let mut add_derive = path_list.list.into_iter().map(|path|quote!{ #path }).collect::<Vec<_>>();
+                    derive.append(&mut add_derive);
                 }
-                CLONE_CMD => {
-                    twiced_err!(? clone => CLONE_CMD);                    
-                    clone = Some(idented_map.map);
-                }
-                NAME_CMD => {
-                    twiced_err!(? name => NAME_CMD);
-                    if idented_map.map.len() != 1 {
-                        return Err(syn::Error::new(input.span(), "expected `name(output_struct_name)`"))
+                PUB_CMD => { is_pub = true; }
+                USE_COW => { use_cow = true; }
+                
+                IGNORE_CMD | CLONE_CMD | NAME_CMD => {
+                    let idented_map: UnnamedIndents = input.parse()?;
+                    match cmd.as_str() {
+                        IGNORE_CMD => {
+                            twiced_err!(? ignore => IGNORE_CMD);
+                            ignore = Some(idented_map.map);
+                        }
+                        CLONE_CMD => {
+                            twiced_err!(? clone => CLONE_CMD);                    
+                            clone = Some(idented_map.map);
+                        }
+                        NAME_CMD => {
+                            twiced_err!(? name => NAME_CMD);
+                            if idented_map.map.len() != 1 {
+                                return Err(syn::Error::new(input.span(), "expected `name(output_struct_name)`"))
+                            }
+                            name = Some(idented_map.map.into_iter().next().unwrap().1)
+                        }
+                        _ => unreachable!()
                     }
-                    name = Some(idented_map.map.into_iter().next().unwrap().1)
                 }
                 _ => {
                     let span = input.span();
