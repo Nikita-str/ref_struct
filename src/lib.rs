@@ -1,156 +1,15 @@
-use std::collections::HashMap;
-
 use proc_macro::TokenStream;
 use quote::{quote, format_ident};
 use syn::DeriveInput;
 
-use proc_macro2::TokenStream as TokenStream2;
-
+mod args;
 mod general;
-use general::{UnnamedList, UnnamedIndents};
+mod struct_info;
 
-#[derive(Debug)]
-struct Args {
-    name: Option<syn::Ident>,
-    clone: HashMap<String, syn::Ident>,
-    ignore: HashMap<String, syn::Ident>,
-    derive: Vec<TokenStream2>,
-    is_pub: bool,
-    use_cow: bool,
-}
-impl syn::parse::Parse for Args {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        const USE_COW: &str = "use_cow";
-        const PUB_CMD: &str = "public";
-        const DERIVE_CMD: &str = "derive";
-        const IGNORE_CMD: &str = "ignore";
-        const CLONE_CMD: &str = "clone";
-        const NAME_CMD: &str = "name";
-        const ALL_CMD: &[&str] = &[NAME_CMD, CLONE_CMD, IGNORE_CMD,  DERIVE_CMD, PUB_CMD, USE_COW];
+use args::Args;
+use struct_info::StructInfo;
 
-        let mut use_cow = false;
-        let mut is_pub = false;
-        let mut name = None;
-        let mut ignore = None;
-        let mut clone = None;
-        let mut derive = Vec::new();
 
-        loop {
-            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            // [+]   LOOP RELATED MACRO DEFINES
-            macro_rules! cmd_done {
-                () => {{
-                    if input.is_empty() { break }
-                    input.parse::<syn::Token![,]>()?;
-                    continue
-                }};
-            }
-            macro_rules! twiced_err {
-                ($cmd: expr) => {{
-                    let span = input.span();
-                    let message = format!("twiced `{}(..)` cmd", $cmd);
-                    return Err(syn::Error::new(span, message))      
-                }};
-                (? $x: ident => $cmd: expr) => {{
-                    if $x.is_some() {
-                        twiced_err!($cmd)
-                    }
-                }};
-            }
-            // [-]   LOOP RELATED MACRO DEFINES
-            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-            let cmd = input.parse::<syn::Ident>()?.to_string();
-            match cmd.as_str() {
-                DERIVE_CMD => {
-                    let path_list: UnnamedList<syn::Path> = input.parse()?;
-                    let mut add_derive = path_list.list.into_iter().map(|path|quote!{ #path }).collect::<Vec<_>>();
-                    derive.append(&mut add_derive);
-                }
-                PUB_CMD => { is_pub = true; }
-                USE_COW => { use_cow = true; }
-                
-                IGNORE_CMD | CLONE_CMD | NAME_CMD => {
-                    let idented_map: UnnamedIndents = input.parse()?;
-                    match cmd.as_str() {
-                        IGNORE_CMD => {
-                            twiced_err!(? ignore => IGNORE_CMD);
-                            ignore = Some(idented_map.map);
-                        }
-                        CLONE_CMD => {
-                            twiced_err!(? clone => CLONE_CMD);                    
-                            clone = Some(idented_map.map);
-                        }
-                        NAME_CMD => {
-                            twiced_err!(? name => NAME_CMD);
-                            if idented_map.map.len() != 1 {
-                                return Err(syn::Error::new(input.span(), "expected `name(output_struct_name)`"))
-                            }
-                            name = Some(idented_map.map.into_iter().next().unwrap().1)
-                        }
-                        _ => unreachable!()
-                    }
-                }
-                _ => {
-                    let span = input.span();
-                    let message = format!("expected `cmd(..)` where cmd is one of {ALL_CMD:?}");
-                    return Err(syn::Error::new(span, message))
-                }
-            }
-
-            cmd_done!()
-        }
-
-        let ignore = ignore.unwrap_or_else(||HashMap::new());
-        let clone = clone.unwrap_or_else(||HashMap::new());
-
-        Ok(Self {
-            name,
-            clone,
-            ignore,
-            derive,
-            is_pub,
-            use_cow,
-        })
-    }
-}
-
-struct StructInfo {
-    name: syn::Ident,
-    field_names: Vec<syn::Ident>,
-    field_types: Vec<TokenStream2>,
-}
-impl StructInfo {
-    fn from_derive_input(input: &DeriveInput) -> Self {
-        let name = input.ident.clone();
-
-        let struct_fields = if let syn::Data::Struct(ds) = input.data.clone() {
-            ds.fields.into_iter().map(|field|{
-                if let Some(name) = field.ident {
-                    (name, field.ty)
-                } else {
-                    unimplemented!("unnamed field case")
-                }
-            }).collect::<Vec<_>>()
-        } else {
-            unimplemented!("non struct case");
-        };
-    
-        let field_names = struct_fields.iter()
-            .map(|field|field.0.clone()).collect::<Vec<_>>();
-    
-        let field_types = struct_fields.iter()
-            .map(|(_, ty)|quote!{ #ty }).collect::<Vec<_>>();
-
-        Self {
-            name,
-            field_names,
-            field_types,
-        }
-    }
-}
-
-/// # general form
 /// `#[ref_struct(cmd[0], .., cmd[n])]` <br/>
 /// where `cmd[i]` can be one of next:
 /// * `name(output_struct_name)`
@@ -159,9 +18,12 @@ impl StructInfo {
 /// * `derive(derive_path_1, .., derive_path_k)`
 /// * `public`
 /// * `use_cow`
+/// * | `ignore_struct(name(ignore_struct_name), derive(ignore_derive_path_1, .., ignore_derive_path_k))` <br/>
+///   | (imply `use_cow`)
 #[proc_macro_attribute]
 pub fn ref_struct(args: TokenStream, item: TokenStream) -> TokenStream {
     let args: Args = syn::parse(args).unwrap();
+    // todo!("args = {args:#?}");
 
     let input: DeriveInput = syn::parse(item).unwrap();
     let input_info = StructInfo::from_derive_input(&input);
@@ -220,7 +82,6 @@ pub fn ref_struct(args: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
-    // todo!("args = {args:#?}")
     // todo!("\n```\n{}\n```\n", cgen.to_string());
     TokenStream::from(cgen)
 }
