@@ -11,3 +11,7 @@ edition = "2021"
 proc-macro2 = "1.0.70"
 quote = "1.0.33"
 syn = { version = "2.0.41", features = ["derive"] }
+
+[dev-dependencies]
+serde = { version = "1.0.193", features = ["derive"] }
+rmp-serde = "1.1.2"
