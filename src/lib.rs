@@ -269,7 +269,7 @@ pub fn ref_struct(args: TokenStream, item: TokenStream) -> TokenStream {
             pub fn new(x: &'x #in_name) -> Self {
                 Self {
                     #ref_fields_init
-                    #(#clone_fields: x.#ref_fields.clone(),)*
+                    #(#clone_fields: x.#clone_fields.clone(),)*
                 }
             }
         }
