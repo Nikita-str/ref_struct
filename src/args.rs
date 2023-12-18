@@ -95,6 +95,7 @@ impl syn::parse::Parse for Args {
             macro_rules! twiced_err { ($($tt: tt)*) => { twiced_err_x!([input] $($tt)*) }; }
             // [-]   LOOP RELATED MACRO REDEFINES
             // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            if input.is_empty() { break }
 
             let cmd = input.parse::<syn::Ident>()?.to_string();
             match cmd.as_str() {
@@ -175,6 +176,7 @@ impl syn::parse::Parse for IgnoreArgs {
             // macro_rules! twiced_err { ($($tt: tt)*) => { twiced_err_x!([input] $($tt)*) }; }
             // [-]   LOOP RELATED MACRO REDEFINES
             // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            if input.is_empty() { break }
 
             let cmd = input.parse::<syn::Ident>()?.to_string();
             match cmd.as_str() {
