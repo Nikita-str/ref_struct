@@ -34,20 +34,28 @@ pub fn ref_struct(args: TokenStream, item: TokenStream) -> TokenStream {
     let maybe_pub = if args.is_pub { quote! { pub } } else { quote::quote!{ } };
     let derives = args.derive;
 
+    let mut ignore_fields = Vec::new();
+    let mut ignore_tys = Vec::new();
     let mut clone_fields = Vec::new();
     let mut clone_tys = Vec::new();
     let mut ref_fields = Vec::new();
     let mut ref_tys = Vec::new();
 
     for (i, ident) in input_info.field_names.iter().enumerate() {
+        let ty = input_info.field_types[i].clone();
+        let field = ident.clone();
+
         let s = ident.to_string();
-        if args.ignore.contains_key(&s) { continue }
-        if args.clone.contains_key(&s) {
-            clone_tys.push(input_info.field_types[i].clone());
-            clone_fields.push(ident.clone());
+        
+        if args.ignore.contains_key(&s) {
+            ignore_tys.push(ty);
+            ignore_fields.push(field);
+        } else if args.clone.contains_key(&s) {
+            clone_tys.push(ty);
+            clone_fields.push(field);
         } else {
-            ref_tys.push(input_info.field_types[i].clone());
-            ref_fields.push(ident.clone());
+            ref_tys.push(ty);
+            ref_fields.push(field);
         }
     }
 
@@ -63,8 +71,38 @@ pub fn ref_struct(args: TokenStream, item: TokenStream) -> TokenStream {
         quote!{ #(#ref_fields: &x.#ref_fields,)* }
     };
 
-    let cgen = quote!{
+    let maybe_ignore = args.ignore_struct_args.map(|ignore_args|{
+        let derives = ignore_args.derive;
+        let ignore_name = ignore_args.name.unwrap_or(format_ident!("Ignore{}", in_name)); 
+        
+        let struct_define = quote! {
+            #[derive( #(#derives,)* )]
+            struct #ignore_name {
+                #(#ignore_fields: #ignore_tys,)*
+            }
+        };
+
+        let merge_fn = quote! {
+            pub fn merge(self, ignored: #ignore_name) -> #in_name {
+                #in_name {
+                    #(#ref_fields: self.#ref_fields.into_owned(),)*
+                    #(#clone_fields: self.#clone_fields,)*
+                    #(#ignore_fields: ignored.#ignore_fields,)*
+                }
+            }
+        };
+
+        (struct_define, merge_fn)
+    });
+
+    let (maybe_ignore_struct, maybe_merge_fn) = maybe_ignore
+        .map(|(define, merge_fn)|(Some(define), Some(merge_fn)))
+        .unwrap_or_default();
+
+    let cgen = quote!{        
         #input
+
+        #maybe_ignore_struct
 
         #[derive( #(#derives,)* )]
         #maybe_pub struct #out_name<'x> {
@@ -79,6 +117,8 @@ pub fn ref_struct(args: TokenStream, item: TokenStream) -> TokenStream {
                     #(#clone_fields: x.#clone_fields.clone(),)*
                 }
             }
+
+            #maybe_merge_fn
         }
     };
 

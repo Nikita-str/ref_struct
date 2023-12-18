@@ -124,7 +124,10 @@ impl syn::parse::Parse for Args {
 
                     let content;
                     let _ = syn::parenthesized!(content in input);
-                    ignore_struct_args = Some(content.parse::<IgnoreArgs>()?)
+                    ignore_struct_args = Some(content.parse::<IgnoreArgs>()?);
+                    
+                    // imply:
+                    use_cow = true;
                 }
 
                 _ => { err_unkn_cmd(&input, ALL_CMD)?; }
