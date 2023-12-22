@@ -28,6 +28,17 @@ pub fn ref_struct(args: TokenStream, item: TokenStream) -> TokenStream {
     let input: DeriveInput = syn::parse(item).unwrap();
     let input_info = StructInfo::from_derive_input(&input);
     
+    for (ignore_field, _) in &args.ignore {
+        if !input_info.field_names_set.contains(ignore_field) {
+            panic!("unknown [ignore] fields: `{ignore_field}`")
+        }
+    }
+    for (clone_field, _) in &args.clone {
+        if !input_info.field_names_set.contains(clone_field) {
+            panic!("unknown [clone] fields: `{clone_field}`")
+        }
+    }
+
     let in_name = input_info.name;
     let out_name = args.name.unwrap_or(format_ident!("Ref{}", in_name));    
 

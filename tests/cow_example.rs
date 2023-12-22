@@ -1,5 +1,5 @@
 
-#[ref_struct::ref_struct(use_cow, name(Cowed), ignore(ignore_a, ignore_b), clone(clone_a), derive(Debug, PartialEq, Eq))]
+#[ref_struct::ref_struct(use_cow, name(Cowed), ignore(ignore_a, ignore_b), clone(copy_a), derive(Debug, PartialEq, Eq))]
 struct TestStruct {
     ignore_a: u32,
     ref_a: Vec<u8>,
@@ -36,7 +36,7 @@ pub fn test_cow() {
     assert_ne!(&x.ignore_a, &y.ignore_a);
     assert_ne!(&x.ignore_b, &y.ignore_b);
 
-    assert_eq!(x_link.copy_a.as_ref(), &clone);
+    assert_eq!(x_link.copy_a, clone);
     assert_eq!(x_link.ref_a.as_ref(), &a);
     assert_eq!(x_link.ref_b.as_ref(), &b0);
 

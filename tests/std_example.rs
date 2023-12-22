@@ -1,5 +1,5 @@
 
-#[ref_struct::ref_struct(ignore(ignore_a, ignore_b), derive(Clone, Debug, PartialEq, Eq), name(TwoVecAndCopy), clone(clone_a))]
+#[ref_struct::ref_struct(ignore(ignore_a, ignore_b), derive(Clone, Debug, PartialEq, Eq), name(TwoVecAndCopy), clone(copy_a))]
 struct SimpleStruct {
     ignore_a: u32,
     ref_a: Vec<u8>,
@@ -36,7 +36,7 @@ pub fn test_01() {
     assert_ne!(&x.ignore_a, &y.ignore_a);
     assert_ne!(&x.ignore_b, &y.ignore_b);
 
-    assert_eq!(x_link.copy_a, &clone);
+    assert_eq!(x_link.copy_a, clone);
     assert_eq!(x_link.ref_a, &a);
     assert_eq!(x_link.ref_b, &b0);
 

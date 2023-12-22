@@ -1,9 +1,12 @@
+use std::collections::HashSet;
+
 use quote::quote;
 use syn::DeriveInput;
 use proc_macro2::TokenStream as TokenStream2;
 
 pub struct StructInfo {
     pub name: syn::Ident,
+    pub field_names_set: HashSet<String>,
     pub field_names: Vec<syn::Ident>,
     pub field_types: Vec<TokenStream2>,
 }
@@ -29,8 +32,11 @@ impl StructInfo {
         let field_types = struct_fields.iter()
             .map(|(_, ty)|quote!{ #ty }).collect::<Vec<_>>();
 
+        let field_names_set = field_names.iter().map(|x|x.to_string()).collect();
+
         Self {
             name,
+            field_names_set,
             field_names,
             field_types,
         }

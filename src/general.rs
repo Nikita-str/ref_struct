@@ -1,16 +1,28 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, marker::PhantomData};
 use syn::parse::{Parse, ParseStream};
 
 type CommaSeparated<T> = syn::punctuated::Punctuated::<T, syn::Token![,]>;
 
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+pub trait RepeatAllow {
+    const REPEAT_ALLOWED: bool = false;
+    const REPEAT_MSG: &'static str = "ident";
+}
+
+pub struct RepeatAllowStd;
+impl RepeatAllow for RepeatAllowStd {}
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // [+] [Indents]
 #[derive(Debug)]
-pub struct UnnamedIndents {
+pub struct UnnamedIdents<R: RepeatAllow = RepeatAllowStd> {
     pub map: HashMap<String, syn::Ident>,
+    phantom: PhantomData<R>,
 }
-impl Parse for UnnamedIndents {
+impl<R: RepeatAllow> Parse for UnnamedIdents<R> {
     fn parse(input: ParseStream) -> syn::Result<Self> {
 
         let content;
@@ -20,26 +32,36 @@ impl Parse for UnnamedIndents {
         let mut map = HashMap::new();
         for ident in list {
             let s = ident.to_string();
-            map.insert(s, ident);
+            let is_repeat = map.insert(s, ident.clone());
+            if !R::REPEAT_ALLOWED && is_repeat.is_some() {
+                let what_repeated = R::REPEAT_MSG;
+                let ident = is_repeat.unwrap().to_string();
+                panic!("repeated {what_repeated}: `{ident}`")
+            } 
         }
 
-        Ok(Self { map })
+        Ok(Self {
+            map,
+            phantom: PhantomData,
+        })
     }
 }
 
 #[derive(Debug)]
-pub struct NamedIndents {
+pub struct NamedIdents<R: RepeatAllow = RepeatAllowStd> {
     pub name: syn::Ident,
     pub map: HashMap<String, syn::Ident>,
+    phantom: PhantomData<R>,
 }
-impl Parse for NamedIndents {
+impl<R: RepeatAllow> Parse for NamedIdents<R> {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let name = input.parse::<syn::Ident>()?;
-        let map = input.parse::<UnnamedIndents>()?; 
+        let map = input.parse::<UnnamedIdents<R>>()?; 
 
         Ok(Self {
             name,
             map: map.map,
+            phantom: PhantomData,
         })
     }
 }

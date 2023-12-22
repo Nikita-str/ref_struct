@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use syn::parse::ParseStream;
 use quote::quote;
 use proc_macro2::TokenStream as TokenStream2;
-use crate::general::{UnnamedList, UnnamedIndents};
+use crate::general::{UnnamedList, UnnamedIdents};
 
 const USE_COW: &str = "use_cow";
 const PUB_CMD: &str = "public";
@@ -47,7 +47,7 @@ fn parse_derive(input: &ParseStream, derive: &mut Vec<TokenStream2>) -> syn::Res
     Ok(())
 }
 
-fn parse_name(input: &ParseStream, unnamed_map: UnnamedIndents, name: &mut Option<syn::Ident>) -> syn::Result<()> {
+fn parse_name(input: &ParseStream, unnamed_map: UnnamedIdents, name: &mut Option<syn::Ident>) -> syn::Result<()> {
     twiced_err_x!([input] ? name => NAME_CMD);
     if unnamed_map.map.len() != 1 {
         return Err(syn::Error::new(input.span(), "expected `name(struct_name)`"))
@@ -66,6 +66,17 @@ fn err_unkn_cmd(input: &ParseStream, all_cmd: &[&str]) -> syn::Result<()> {
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // [+] [FULL ARGS]
+
+struct CloneRepeat;
+impl crate::general::RepeatAllow for CloneRepeat {
+    const REPEAT_MSG: &'static str = "[clone] fields";
+}
+struct IgnoreRepeat;
+impl crate::general::RepeatAllow for IgnoreRepeat {
+    const REPEAT_MSG: &'static str = "[ignore] fields";
+}
+
+
 #[derive(Debug)]
 pub struct Args {
     pub name: Option<syn::Ident>,
@@ -103,23 +114,21 @@ impl syn::parse::Parse for Args {
                 PUB_CMD => { is_pub = true; }
                 USE_COW => { use_cow = true; }
                 
-                IGNORE_CMD | CLONE_CMD | NAME_CMD => {
-                    let unnamed_map: UnnamedIndents = input.parse()?;
-                    match cmd.as_str() {
-                        IGNORE_CMD => {
-                            twiced_err!(? ignore => IGNORE_CMD);
-                            ignore = Some(unnamed_map.map);
-                        }
-                        CLONE_CMD => {
-                            twiced_err!(? clone => CLONE_CMD);                    
-                            clone = Some(unnamed_map.map);
-                        }
-                        NAME_CMD => { parse_name(&input, unnamed_map, &mut name)?; }
-
-                        _ => unreachable!()
-                    }
+                IGNORE_CMD => {
+                    let unnamed_map: UnnamedIdents<IgnoreRepeat> = input.parse()?;
+                    twiced_err!(? ignore => IGNORE_CMD);
+                    ignore = Some(unnamed_map.map);
                 }
-                
+                CLONE_CMD => {
+                    let unnamed_map: UnnamedIdents<CloneRepeat> = input.parse()?;
+                    twiced_err!(? clone => CLONE_CMD);                    
+                    clone = Some(unnamed_map.map);
+                }
+                NAME_CMD => {
+                    let unnamed_map: UnnamedIdents = input.parse()?;
+                    parse_name(&input, unnamed_map, &mut name)?;
+                }
+
                 IGNORE_STRUCT_CMD => {
                     twiced_err!(? ignore_struct_args => IGNORE_STRUCT_CMD);
 
